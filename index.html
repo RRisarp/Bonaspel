@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Skolspel - Bona folkhögskola</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Press Start 2P', monospace;
+            background: #000;
+            overflow: hidden;
+            image-rendering: pixelated;
+        }
+        
+        #game-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100vw;
+            height: 100vh;
+        }
+        
+        canvas {
+            border: 4px solid #000;
+            image-rendering: pixelated;
+        }
+        
+        #ui-overlay {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            display: flex;
+            gap: 10px;
+            z-index: 1000;
+        }
+        
+        .ui-button {
+            background: rgba(0,0,0,0.7);
+            border: 2px solid #FFF;
+            color: #FFF;
+            padding: 10px;
+            cursor: pointer;
+            font-size: 10px;
+        }
+        
+        .ui-button:hover {
+            background: rgba(0,0,0,0.9);
+        }
+        
+        .ui-button.active {
+            background: rgba(255,100,0,0.9);
+        }
+        
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+        
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-20px); }
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+    </div>
+    
+    <div id="ui-overlay">
+        <button id="soundBtn" class="ui-button">🔊</button>
+        <button id="editorBtn" class="ui-button">📝</button>
+    </div>
+
+    <script>
+        // ==========================================
+        // 🎨 FÄRGER
+        // ==========================================
+        const COLORS = {
+            // Huvudfärger
+            mainRed: '#e30613',           // Er röda färg
+            black: '#000000',             // Svart
+            white: '#FFFFFF',             // Vit
+            
+            // Spelarmarkör
+            playerFill: '#4A90E2',
+            playerBorder: '#2E5C8A',
+            
+            // Dialogrutor
+            dialogBackground: 'rgba(0,0,0,0.8)',
+            dialogBorder: '#FFF',
+            dialogText: '#FFF',
+            
+            // Namnplatta
+            namePlateFill: '#FFD700',
+            namePlateBorder: '#FFF',
+            namePlateText: '#000',
+            
+            // Svarsknappar
+            answerButtonNormal: '#2C3E50',
+            answerButtonSelected: '#FFD700',
+            answerButtonBorder: '#FFF',
+            answerButtonText: '#FFF',
+            
+            // Personal
+            npcIncomplete: '#E74C3C',
+            npcCompleted: '#27AE60',
+            npcBorder: '#000',
+            
+            // Checkmark
+            checkmarkFill: '#27AE60',
+            checkmarkBorder: '#FFF',
+            checkmarkSymbol: '#FFF',
+            
+            // Slutskärm
+            completeGradientTop: '#27AE60',
+            completeGradientBottom: '#2ECC71',
+            completeText: '#FFF',
+            
+            // Progress
+            progressBackground: 'rgba(0,0,0,0.8)',
+            progressBorder: '#FFF',
+            progressText: '#FFF',
+            
+            // Editor Mode
+            editorBackground: 'rgba(255,100,0,0.95)',
+            editorBorder: '#FFF',
+            editorText: '#FFF',
+            editorHighlight: '#FFD700',
+        };
+
+        // ==========================================
+        // 🎮 GAME CONFIGURATION
+        // ==========================================
+        const CONFIG = {
+            schoolName: "Bona folkhögskola",
+            
+            // 👩‍🏫 REKTOR
+            principal: {
+                name: "Anneli",
+                image: "images/AD2.png", // 🖼️ "images/anneli.png"
+            },
+            
+            // 👥 PERSONAL (7 personer)
+            npcs: [
+                {
+                    id: 'peter',
+                    name: 'Peter',
+                    x: 430,
+                    y: 45,
+                    image: "images/PR2.png", // 🖼️ "images/peter.png"
+                    question: 'Tjenare! \nNu har du kommit till Berlin.\nVilket fotbollslag håller jag på?',
+                    answers: ['AIK', 'Häcken', 'Elfsborg'],
+                    correctAnswer: 2,
+                    correctText: 'Rätt! \nElfsborg är laget i mitt hjärta!',
+                    wrongText: 'Nej. \nLedtråd:Jag är från Borås.'
+                },
+                {
+                    id: 'helena',
+                    name: 'Helena',
+                    x: 290,
+                    y: 45,
+                    image: "images/HJ2.png", // 🖼️ "images/helena.png"
+                    question: 'Hej! \nHär står jag i Colombo. \nFörutom matte så älskar jag sömnad. \nVilket av de här tygerna är döpt efter en ö?',
+                    answers: ['Manchester', 'Jersey', 'Poplin'],
+                    correctAnswer: 1,
+                    correctText: 'Korrekt! Jersey är en engelsk ö!',
+                    wrongText: 'Tyvärr fel! Försök igen.'
+                },
+                {
+                    id: 'johanna',
+                    name: 'Johanna',
+                    x: 775,
+                    y: 370,
+                    image: "images/JL2.png", // 🖼️ "images/johanna.png"
+                    question: '"Hej! \nVälkommen in i Estocolmo.\n Jag älskar mossor och lavar. \nVitmossan" i adventsljusstaken är egentligen en lav. \nVilken?',
+                    answers: ['Bastulav', 'Fönsterlav', 'Skägglav'],
+                    correctAnswer: 1,
+                    correctText: 'Helt rätt! Fönsterlav är det!',
+                    wrongText: 'Nej, det var inte rätt.'
+                },
+                {
+                    id: 'robert',
+                    name: 'Robert',
+                    x: 62,
+                    y: 80,
+                    image: "images/RR2.png", // 🖼️ "images/robert.png"
+                    question: 'Hej! Jag förbereder skärmarna i Berlin. \nVilket av dessa instrument är jag minst dålig på?',
+                    answers: ['Klarinett', 'Trumpet', 'Charango'],
+                    correctAnswer: 0,
+                    correctText: 'Ja, jag vet i alla fall var tonerna sitter på klarinetten!',
+                    wrongText: 'Nej, det instrumentet har jag inte lärt mig spela ännu!'
+                },
+                {
+                    id: 'micke',
+                    name: 'Micke',
+                    x: 556,
+                    y: 32,
+                    image: "images/MV2.png", // 🖼️ "images/micke.png"
+                    question: 'Vem i personalen har haft mig som lärare?',
+                    answers: ['Helena', 'Johanna', 'Peter'],
+                    correctAnswer: 2,
+                    correctText: 'Ja, Peter var ganska ambitiös faktiskt.',
+                    wrongText: 'Tyvärr inte rätt.'
+                },
+                {
+                    id: 'fia',
+                    name: 'Fia',
+                    x: 831,
+                    y: 67,
+                    image: "images/SF2.png", // 🖼️ "images/fia.png"
+                    question: 'Hej och välkommen in i Freetown!\nVilket av de här handarbetena gör jag oftast?',
+                    answers: ['Vävning', 'Virkning', 'Makramé'],
+                    correctAnswer: 1,
+                    correctText: 'Abrolut! Jag älskar att virka!',
+                    wrongText: 'Nej, tyvärr. \nLedtråd: hälften så många pinnar som stickning!'
+                },
+                {
+                    id: 'jennie',
+                    name: 'Jennie',
+                    x: 322,
+                    y: 348,
+                    image: "images/JN2.png", // 🖼️ "images/jennie.png"
+                    question: 'Hej! Jag sitter i en av våra samtalsbås.\nVad kan jag inte vara utan?',
+                    answers: ['Choklad', 'Knäckebröd', 'Broccoli'],
+                    correctAnswer: 0,
+                    correctText: 'Rätt! Chaklad är livet!',
+                    wrongText: 'Tyvärr!\nDet kan jag nog vara utan'
+                }
+            ],
+            
+            // 🧱 VÄGGAR
+            walls: [
+                // Yttre väggar (REDIGERA INTE DESSA)
+                { x: 0, y: 0, width: 900, height: 10 },
+                { x: 0, y: 0, width: 10, height: 489 },
+                { x: 890, y: 0, width: 10, height: 489 },
+                { x: 0, y: 479, width: 900, height: 10 },
+                
+                // 🧱 LÄGG TILL DINA VÄGGAR HÄR 👇
+                {x: 238, y: 0, width: 5, height: 239 },
+                {x: 376, y: 0, width: 5, height: 239 },
+                {x: 530, y: 0, width: 5, height: 239 },
+                {x: 728, y: 0, width: 5, height: 142 },
+                {x: 728, y: 202, width: 5, height: 70 },
+                {x: 300, y: 381, width: 5, height: 100 },
+                {x: 373, y: 327, width: 5, height: 160 },
+                {x: 317, y: 262, width: 110, height: 5 },
+                {x: 560, y: 332, width: 5, height: 160 },
+                {x: 527, y: 143, width: 63, height: 5 },
+                {x: 646, y: 143, width: 90, height: 5 },
+                {x: 530, y: 138, width: 52, height: 5 },
+                {x: 643, y: 140, width: 90, height: 5 },
+                {x: 722, y: 267, width: 170, height: 5 },
+                {x: 650, y: 336, width: 240, height: 5 },
+                {x: 298, y: 328, width: 76, height: 5 },
+            ]
+        };
+
+        // 🖼️ BILDER - LÄGG IN SÖKVÄGAR HÄR
+        const IMAGES = {
+            facade: "images/fasaden.png",                    // 🏫 "images/fasad.png"
+            floorplan: "images/ritning5.png",                 // 🗺️ "images/planritning.png"
+            playerLogo: "images/Logga.png",                // 🎯 "images/logga.png"
+            introLogo: "images/logga2.png",                 // 🎯 "images/logga.png" - Logga på första sidan
+        };
+
+        // ==========================================
+        // GAME CODE
+        // ==========================================
+
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = 900;
+        canvas.height = 669;
+
+        // Game state
+        let gameState = 'intro';
+        let player = { x: 450, y: 440, direction: 'down', size: 32 };
+        let completedNPCs = [];
+        let activeNPC = null;
+        let dialogText = '';
+        let fullText = '';
+        let textSpeed = 0;
+        let showAnswers = false;
+        let wrongAnswer = false;
+        let soundEnabled = true;
+        let editorMode = false;
+        let clickCoords = null;
+        let selectedAnswer = 0;
+        let keys = {};
+        let images = {};
+
+        // Load images
+        function loadImages() {
+            const imagePromises = [];
+            
+            if (IMAGES.facade) {
+                images.facade = new Image();
+                imagePromises.push(new Promise(resolve => {
+                    images.facade.onload = resolve;
+                    images.facade.onerror = resolve;
+                    images.facade.src = IMAGES.facade;
+                }));
+            }
+            
+            if (IMAGES.floorplan) {
+                images.floorplan = new Image();
+                imagePromises.push(new Promise(resolve => {
+                    images.floorplan.onload = resolve;
+                    images.floorplan.onerror = resolve;
+                    images.floorplan.src = IMAGES.floorplan;
+                }));
+            }
+            
+            if (CONFIG.principal.image) {
+                images.principal = new Image();
+                imagePromises.push(new Promise(resolve => {
+                    images.principal.onload = resolve;
+                    images.principal.onerror = resolve;
+                    images.principal.src = CONFIG.principal.image;
+                }));
+            }
+            
+            if (IMAGES.playerLogo) {
+                images.playerLogo = new Image();
+                imagePromises.push(new Promise(resolve => {
+                    images.playerLogo.onload = resolve;
+                    images.playerLogo.onerror = resolve;
+                    images.playerLogo.src = IMAGES.playerLogo;
+                }));
+            }
+            
+            if (IMAGES.introLogo) {
+                images.introLogo = new Image();
+                imagePromises.push(new Promise(resolve => {
+                    images.introLogo.onload = resolve;
+                    images.introLogo.onerror = resolve;
+                    images.introLogo.src = IMAGES.introLogo;
+                }));
+            }
+            
+            CONFIG.npcs.forEach(npc => {
+                if (npc.image) {
+                    images[npc.id] = new Image();
+                    imagePromises.push(new Promise(resolve => {
+                        images[npc.id].onload = resolve;
+                        images[npc.id].onerror = resolve;
+                        images[npc.id].src = npc.image;
+                    }));
+                }
+            });
+            
+            return Promise.all(imagePromises);
+        }
+
+        // Input handling
+        document.addEventListener('keydown', (e) => {
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ', 'Enter'].includes(e.key)) {
+                e.preventDefault();
+            }
+            keys[e.key] = true;
+            
+            if ((e.key === ' ' || e.key === 'Enter')) {
+                if (gameState === 'intro') {
+                    gameState = 'instructions';
+                } else if (gameState === 'instructions') {
+                    gameState = 'playing';
+                } else if (showAnswers && !wrongAnswer && activeNPC) {
+                    handleAnswer(selectedAnswer);
+                }
+            }
+            
+            if (showAnswers && !wrongAnswer && activeNPC) {
+                if (e.key === 'ArrowUp') {
+                    selectedAnswer = Math.max(0, selectedAnswer - 1);
+                } else if (e.key === 'ArrowDown') {
+                    selectedAnswer = Math.min(activeNPC.answers.length - 1, selectedAnswer + 1);
+                }
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            keys[e.key] = false;
+        });
+
+        canvas.addEventListener('click', (e) => {
+            if (editorMode && gameState === 'playing') {
+                const rect = canvas.getBoundingClientRect();
+                const x = Math.round(e.clientX - rect.left);
+                const y = Math.round(e.clientY - rect.top);
+                clickCoords = { x, y };
+                navigator.clipboard.writeText(`x: ${x}, y: ${y}`);
+            } else if (showAnswers && !wrongAnswer && activeNPC) {
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                if (mouseX >= 450 && mouseX <= 850 && mouseY >= 580) {
+                    const answerIndex = Math.floor((mouseY - 580) / 30);
+                    if (answerIndex >= 0 && answerIndex < activeNPC.answers.length) {
+                        handleAnswer(answerIndex);
+                    }
+                }
+            }
+        });
+
+        document.getElementById('soundBtn').addEventListener('click', () => {
+            soundEnabled = !soundEnabled;
+            document.getElementById('soundBtn').textContent = soundEnabled ? '🔊' : '🔇';
+        });
+
+        document.getElementById('editorBtn').addEventListener('click', () => {
+            if (gameState === 'playing') {
+                editorMode = !editorMode;
+                clickCoords = null;
+                document.getElementById('editorBtn').classList.toggle('active');
+            }
+        });
+
+        function updatePlayer() {
+            if (gameState !== 'playing' || activeNPC || editorMode) return;
+            
+            const speed = 3;
+            let newX = player.x;
+            let newY = player.y;
+            
+            if (keys['ArrowUp']) {
+                newY -= speed;
+                player.direction = 'up';
+            }
+            if (keys['ArrowDown']) {
+                newY += speed;
+                player.direction = 'down';
+            }
+            if (keys['ArrowLeft']) {
+                newX -= speed;
+                player.direction = 'left';
+            }
+            if (keys['ArrowRight']) {
+                newX += speed;
+                player.direction = 'right';
+            }
+            
+            let collision = false;
+            for (let wall of CONFIG.walls) {
+                if (newX < wall.x + wall.width &&
+                    newX + player.size > wall.x &&
+                    newY < wall.y + wall.height &&
+                    newY + player.size > wall.y) {
+                    collision = true;
+                    break;
+                }
+            }
+            
+            if (!collision) {
+                player.x = newX;
+                player.y = newY;
+            }
+            
+            for (let npc of CONFIG.npcs) {
+                if (completedNPCs.includes(npc.id)) continue;
+                
+                const distance = Math.sqrt(
+                    Math.pow(player.x - npc.x, 2) + Math.pow(player.y - npc.y, 2)
+                );
+                
+                if (distance < 50) {
+                    activeNPC = npc;
+                    fullText = npc.question;
+                    textSpeed = 0;
+                    dialogText = '';
+                    showAnswers = false;
+                    wrongAnswer = false;
+                    selectedAnswer = 0;
+                    break;
+                }
+            }
+        }
+
+        function handleAnswer(answerIndex) {
+            if (!activeNPC) return;
+            
+            if (answerIndex === activeNPC.correctAnswer) {
+                fullText = activeNPC.correctText;
+                textSpeed = 0;
+                dialogText = '';
+                showAnswers = false;
+                wrongAnswer = false;
+                
+                setTimeout(() => {
+                    completedNPCs.push(activeNPC.id);
+                    activeNPC = null;
+                    dialogText = '';
+                    fullText = '';
+                    
+                    if (completedNPCs.length === CONFIG.npcs.length) {
+                        gameState = 'complete';
+                    }
+                }, 3000);
+            } else {
+                wrongAnswer = true;
+                fullText = activeNPC.wrongText;
+                textSpeed = 0;
+                dialogText = '';
+                showAnswers = false;
+                
+                setTimeout(() => {
+                    fullText = activeNPC.question;
+                    textSpeed = 0;
+                    dialogText = '';
+                    wrongAnswer = false;
+                }, 3000);
+            }
+        }
+
+        function updateText() {
+            if (fullText && textSpeed < fullText.length) {
+                if (Date.now() % 50 < 25) {
+                    textSpeed++;
+                    dialogText = fullText.substring(0, textSpeed);
+                }
+            } else if (fullText && textSpeed >= fullText.length && !showAnswers && activeNPC && !wrongAnswer) {
+                showAnswers = true;
+            }
+        }
+
+function drawText(text, x, y, maxWidth, fontSize = 10, color = COLORS.dialogText) {
+            ctx.fillStyle = color;
+            ctx.font = `${fontSize}px 'Press Start 2P'`;
+            
+            const paragraphs = text.split('\n');
+            let lineY = y;
+            
+            paragraphs.forEach(paragraph => {
+                const words = paragraph.split(' ');
+                let line = '';
+                
+                for (let word of words) {
+                    const testLine = line + word + ' ';
+                    const metrics = ctx.measureText(testLine);
+                    
+                    if (metrics.width > maxWidth && line !== '') {
+                        ctx.fillText(line, x, lineY);
+                        line = word + ' ';
+                        lineY += fontSize + 8;
+                    } else {
+                        line = testLine;
+                    }
+                }
+                ctx.fillText(line, x, lineY);
+                lineY += fontSize + 8;
+            });
+        }
+
+        function drawRect(x, y, width, height, color, borderColor = null, borderWidth = 0) {
+            ctx.fillStyle = color;
+            ctx.fillRect(x, y, width, height);
+            
+            if (borderColor) {
+                ctx.strokeStyle = borderColor;
+                ctx.lineWidth = borderWidth;
+                ctx.strokeRect(x, y, width, height);
+            }
+        }
+
+        function drawIntro() {
+            // Yttersta lagret: SVART bakgrund
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 900, 669);
+            
+            // Mellersta lagret: RÖD ruta (#e30613)
+            drawRect(50, 100, 800, 450, COLORS.mainRed);
+            
+            // Innersta lagret: SVART ruta
+            drawRect(100, 150, 700, 350, COLORS.black);
+            
+            // Logga (centrerad i den svarta innersta rutan)
+            if (images.introLogo) {
+                // Räkna ut centrum
+                const logoWidth = 400;  // Anpassa storlek efter behov
+                const logoHeight = 200; // Anpassa storlek efter behov
+                const centerX = 450 - logoWidth / 2;
+                const centerY = 325 - logoHeight / 2;
+                ctx.drawImage(images.introLogo, centerX, centerY, logoWidth, logoHeight);
+            } else {
+                // Placeholder text om loggan inte laddats
+                ctx.fillStyle = COLORS.white;
+                ctx.font = '24px "Press Start 2P"';
+                const textWidth = ctx.measureText(CONFIG.schoolName).width;
+                ctx.fillText(CONFIG.schoolName, 450 - textWidth / 2, 325);
+                ctx.font = '12px "Press Start 2P"';
+                ctx.fillText('[Lägg in logga i IMAGES.introLogo]', 250, 380);
+            }
+            
+            // "Tryck SPACE"-ruta
+            drawRect(300, 600, 300, 50, COLORS.dialogBackground, COLORS.dialogBorder, 4);
+            drawText('Tryck SPACE', 340, 625, 220, 12);
+        }
+
+        function drawInstructions() {
+            // Bakgrund: RÖD (#e30613)
+            ctx.fillStyle = COLORS.mainRed;
+            ctx.fillRect(0, 0, 900, 669);
+            
+            // Fasadbild (bakom Anneli) - anpassad för 1252x407 (ca 3:1 proportion)
+            if (images.facade) {
+                ctx.drawImage(images.facade, 150, 180, 600, 195);
+            }
+            
+            // Anneli (längst fram)
+            if (images.principal) {
+                ctx.drawImage(images.principal, 150, 120, 150, 200);
+            } else {
+                drawRect(375, 120, 150, 200, COLORS.black, COLORS.white, 4);
+                ctx.font = '48px Arial';
+                ctx.fillStyle = COLORS.white;
+                ctx.fillText('👨‍🏫', 430, 230);
+            }
+
+            // Textruta
+            drawRect(150, 350, 600, 250, COLORS.dialogBackground, COLORS.dialogBorder, 4);
+            ctx.fillStyle = COLORS.namePlateFill;
+            ctx.font = '12px "Press Start 2P"';
+            ctx.fillText('Rektor ' + CONFIG.principal.name, 170, 380);
+            
+            const welcomeText = `Välkommen till ${CONFIG.schoolName}!\n\nNu ska du får lära känna skolan och vår personal.\n\nAnvänd PILTANGENTERNA för att röra dig.\n\nGå fram till personalen och svara på deras frågor!\n\nLycka till!`;
+            
+            ctx.fillStyle = COLORS.dialogText;
+            ctx.font = '10px "Press Start 2P"';
+            
+            const lines = welcomeText.split('\n');
+            let lineY = 410;
+            
+            lines.forEach(line => {
+                if (line.trim() !== '') {
+                    // Automatisk radbrytning om raden är för lång
+                    const words = line.split(' ');
+                    let currentLine = '';
+                    
+                    words.forEach(word => {
+                        const testLine = currentLine + word + ' ';
+                        const metrics = ctx.measureText(testLine);
+                        
+                        if (metrics.width > 560 && currentLine !== '') {
+                            ctx.fillText(currentLine, 170, lineY);
+                            currentLine = word + ' ';
+                            lineY += 18;
+                        } else {
+                            currentLine = testLine;
+                        }
+                    });
+                    
+                    ctx.fillText(currentLine, 170, lineY);
+                }
+                lineY += 18;
+                drawText('Tryck SPACE', 340, 625, 220, 12);
+            });
+        }
+
+        function drawPlaying() {
+            // Svart bakgrund
+            ctx.fillStyle = COLORS.black;
+            ctx.fillRect(0, 0, 900, 669);
+            
+            // Planritning med RAM
+            if (images.floorplan) {
+                // Rita planritningen
+                ctx.drawImage(images.floorplan, 10, 10, 880, 469);
+                
+                // Rita RAM runt planritningen (RÖD #e30613)
+                ctx.strokeStyle = COLORS.mainRed;
+                ctx.lineWidth = 8;
+                ctx.strokeRect(10, 10, 880, 469);
+            } else {
+                // Placeholder
+                ctx.fillStyle = '#D3D3D3';
+                ctx.fillRect(10, 10, 880, 469);
+                
+                // Ram även för placeholder
+                ctx.strokeStyle = COLORS.mainRed;
+                ctx.lineWidth = 8;
+                ctx.strokeRect(10, 10, 880, 469);
+            }
+            
+            if (editorMode) {
+                CONFIG.walls.forEach(wall => {
+                    ctx.fillStyle = 'rgba(255,0,0,0.3)';
+                    ctx.fillRect(wall.x, wall.y, wall.width, wall.height);
+                    ctx.strokeStyle = '#FF0000';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(wall.x, wall.y, wall.width, wall.height);
+                });
+            }
+            
+            CONFIG.npcs.forEach(npc => {
+                const img = images[npc.id];
+                if (img) {
+                    ctx.drawImage(img, npc.x, npc.y, 50, 75);
+                } else {
+                    const color = completedNPCs.includes(npc.id) ? COLORS.npcCompleted : COLORS.npcIncomplete;
+                    drawRect(npc.x, npc.y, 50, 75, color, COLORS.npcBorder, 2);
+                    ctx.font = '30px Arial';
+                    ctx.fillText('👤', npc.x + 5, npc.y + 45);
+                }
+                
+                if (completedNPCs.includes(npc.id)) {
+                    ctx.beginPath();
+                    ctx.arc(npc.x + 40, npc.y - 4, 14, 0, Math.PI * 2);
+                    ctx.fillStyle = COLORS.checkmarkFill;
+                    ctx.fill();
+                    ctx.strokeStyle = COLORS.checkmarkBorder;
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                    ctx.fillStyle = COLORS.checkmarkSymbol;
+                    ctx.font = '14px Arial';
+                    ctx.fillText('✓', npc.x + 34, npc.y + 3);
+                }
+                
+                drawRect(npc.x - 8, npc.y + 79, 66, 16, 'rgba(255,255,255,0.9)', COLORS.npcBorder, 1);
+                ctx.fillStyle = '#000';
+                ctx.font = '8px "Press Start 2P"';
+                ctx.fillText(npc.name, npc.x, npc.y + 91);
+            });
+            
+            // Player
+            if (!editorMode) {
+                if (images.playerLogo) {
+                    ctx.drawImage(images.playerLogo, player.x, player.y, player.size, player.size);
+                } else {
+                    const arrows = { up: '▲', down: '▼', left: '◄', right: '►' };
+                    drawRect(player.x, player.y, player.size, player.size, COLORS.playerFill, COLORS.playerBorder, 2);
+                    ctx.fillStyle = '#FFF';
+                    ctx.font = '18px Arial';
+                    ctx.fillText(arrows[player.direction], player.x + 8, player.y + 24);
+                }
+            }
+            
+            if (editorMode) {
+                drawRect(10, 10, 300, 120, COLORS.editorBackground, COLORS.editorBorder, 3);
+                ctx.fillStyle = COLORS.editorHighlight;
+                ctx.font = '10px "Press Start 2P"';
+                ctx.fillText('EDITOR MODE', 20, 30);
+                ctx.fillStyle = COLORS.editorText;
+                ctx.font = '8px "Press Start 2P"';
+                drawText('Klicka för koordinater', 20, 50, 280, 8, COLORS.editorText);
+                drawText('Koordinater kopieras!', 20, 70, 280, 8, COLORS.editorText);
+                drawText('Röda områden = väggar', 20, 90, 280, 8, COLORS.editorText);
+                
+                if (clickCoords) {
+                    drawRect(clickCoords.x - 80, clickCoords.y - 50, 160, 40, COLORS.editorBackground, COLORS.editorBorder, 2);
+                    ctx.fillStyle = COLORS.editorText;
+                    ctx.font = '8px "Press Start 2P"';
+                    ctx.fillText(`x: ${clickCoords.x}, y: ${clickCoords.y}`, clickCoords.x - 70, clickCoords.y - 30);
+                    ctx.fillText('(kopierad!)', clickCoords.x - 45, clickCoords.y - 15);
+                }
+            }
+            
+            if (activeNPC && !editorMode) {
+                drawRect(0, 489, 900, 180, COLORS.dialogBackground, COLORS.dialogBorder, 4);
+                
+                const img = images[activeNPC.id];
+                if (img) {
+                    ctx.drawImage(img, 10, 509, 120, 170);
+                } else {
+                    drawRect(10, 509, 120, 170, COLORS.npcIncomplete, COLORS.dialogBorder, 3);
+                    ctx.font = '50px Arial';
+                    ctx.fillText('👤', 30, 590);
+                }
+                
+                drawRect(110, 509, 200, 30, COLORS.namePlateFill, COLORS.namePlateBorder, 2);
+                ctx.fillStyle = COLORS.namePlateText;
+                ctx.font = '10px "Press Start 2P"';
+                ctx.fillText(activeNPC.name, 120, 528);
+                
+                drawText(dialogText, 110, 559, 770, 10, COLORS.dialogText);
+                
+                if (showAnswers && !wrongAnswer) {
+                    activeNPC.answers.forEach((answer, i) => {
+                        const isSelected = i === selectedAnswer;
+                        const bgColor = isSelected ? COLORS.answerButtonSelected : COLORS.answerButtonNormal;
+                    drawRect(600, 580 + i * 30, 300, 28, bgColor, COLORS.answerButtonBorder, 3);
+                        ctx.fillStyle = COLORS.answerButtonText;
+                        ctx.font = '10px "Press Start 2P"';
+                        ctx.fillText('► ' + answer, 610, 599 + i * 30);
+                    });
+                }
+            }
+            
+            if (!editorMode) {
+                drawRect(750, 10, 140, 40, COLORS.progressBackground, COLORS.progressBorder, 2);
+                ctx.fillStyle = COLORS.progressText;
+                ctx.font = '10px "Press Start 2P"';
+                ctx.fillText(`${completedNPCs.length}/${CONFIG.npcs.length}`, 760, 35);
+            }
+        }
+
+        function drawComplete() {
+            const gradient = ctx.createLinearGradient(0, 0, 0, 669);
+            gradient.addColorStop(0, COLORS.completeGradientTop);
+            gradient.addColorStop(1, COLORS.completeGradientBottom);
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, 900, 669);
+            
+            ctx.fillStyle = COLORS.completeText;
+            ctx.font = '32px "Press Start 2P"';
+            ctx.fillText('GRATTIS!', 300, 200);
+            
+            drawRect(150, 300, 600, 150, 'rgba(0,0,0,0.5)', COLORS.dialogBorder, 3);
+            drawText('Du har träffat all personal!', 200, 340, 500, 12, COLORS.completeText);
+            drawText('Välkommen till ' + CONFIG.schoolName + '!', 200, 390, 500, 12, COLORS.completeText);
+            
+            drawRect(300, 500, 300, 50, COLORS.answerButtonNormal, COLORS.dialogBorder, 4);
+            drawText('SPACE = Spela igen', 320, 525, 260, 10, COLORS.completeText);
+        }
+
+        function gameLoop() {
+            ctx.clearRect(0, 0, 900, 669);
+            
+            switch (gameState) {
+                case 'intro':
+                    drawIntro();
+                    break;
+                case 'instructions':
+                    drawInstructions();
+                    break;
+                case 'playing':
+                    updatePlayer();
+                    updateText();
+                    drawPlaying();
+                    break;
+                case 'complete':
+                    drawComplete();
+                    if (keys[' '] || keys['Enter']) {
+                        gameState = 'playing';
+                        completedNPCs = [];
+                        player = { x: 450, y: 440, direction: 'down', size: 32 };
+                        keys = {};
+                    }
+                    break;
+            }
+            
+            requestAnimationFrame(gameLoop);
+        }
+
+        loadImages().then(() => {
+            gameLoop();
+        });
+    </script>
+</body>
+</html>
